@@ -1,0 +1,84 @@
+# ray-cluster-gpu-final.yaml
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-sample
+  namespace: default
+spec:
+  rayVersion: '2.8.0'
+  
+  # Head node configuration
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+      num-cpus: '0'
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.8.0-py310
+          ports:
+          - containerPort: 6379
+            name: gcs
+            protocol: TCP
+          - containerPort: 8265
+            name: dashboard
+            protocol: TCP
+          - containerPort: 10001
+            name: client
+            protocol: TCP
+          - containerPort: 8000
+            name: serve
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+  
+  # Worker groups
+  workerGroupSpecs:
+  # CPU workers
+  - groupName: small-group
+    replicas: 2
+    minReplicas: 1
+    maxReplicas: 3
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.8.0-py310
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+  
+  # GPU workers
+  - groupName: gpu-group
+    replicas: 1
+    minReplicas: 0
+    maxReplicas: 2
+    rayStartParams:
+      num-gpus: "1"
+    template:
+      spec:
+        nodeSelector:
+          name: gpu-pool2  # Target the fresh GPU node pool
+        containers:
+        - name: ray-worker-gpu
+          image: rayproject/ray:2.8.0-py310-gpu
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
