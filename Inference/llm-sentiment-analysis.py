@@ -1,27 +1,34 @@
-# llm_serve_demo.py
+# llm_serve_demo_gpu.py
 from ray import serve
 from starlette.requests import Request
 import ray
 
-# Initialize Ray (connect to existing cluster)
+# Initialize Ray
 ray.init(address="auto")
 
 @serve.deployment(
     route_prefix="/analyze",
-    num_replicas=2,
-    ray_actor_options={"num_cpus": 0.5}
+    num_replicas=1,
+    ray_actor_options={
+        "num_cpus": 1,
+        "num_gpus": 1
+    }
 )
 class SentimentAnalyzer:
     def __init__(self):
-        # Using transformers for sentiment analysis
         from transformers import pipeline
-        print("Loading sentiment analysis model...")
+        import torch
+        
+        device = 0 if torch.cuda.is_available() else -1
+        device_name = "GPU" if device == 0 else "CPU"
+        
+        print(f"🚀 Loading model on {device_name}...")
         self.model = pipeline(
             "sentiment-analysis",
             model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=-1  # CPU only
+            device=device
         )
-        print("Model loaded successfully!")
+        print(f"✅ Model loaded on {device_name}!")
     
     async def __call__(self, request: Request):
         data = await request.json()
@@ -30,7 +37,6 @@ class SentimentAnalyzer:
         if not text:
             return {"error": "No text provided"}
         
-        # Run inference
         result = self.model(text)[0]
         
         return {
@@ -39,8 +45,5 @@ class SentimentAnalyzer:
             "confidence": round(result["score"], 4)
         }
 
-# Deploy the service
 serve.run(SentimentAnalyzer.bind(), name="sentiment_service")
-
-print("✅ Sentiment Analysis Service is running!")
-print("📍 Endpoint: http://<ray-head-ip>:8000/analyze")
+print("✅ Sentiment Analysis Service running on GPU!")
