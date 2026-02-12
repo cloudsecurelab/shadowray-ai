@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-api
+  namespace: default
+  labels:
+    app: flask-api
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-api
+  template:
+    metadata:
+      labels:
+        app: flask-api
+        tier: backend
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: flask-api-sa
+      containers:
+      - name: api
+        image: python:3.10-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install flask requests --break-system-packages
+          cd /app
+          python flask-api.py
+        ports:
+        - containerPort: 5000
+          name: http
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # pip install needs write access
+          runAsNonRoot: false  # python:slim runs as root by default
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+      volumes:
+      - name: code
+        configMap:
+          name: flask-api-code
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-api-svc
+  namespace: default
+spec:
+  selector:
+    app: flask-api
+  ports:
+  - port: 5000
+    targetPort: 5000
+    name: http
+  type: ClusterIP

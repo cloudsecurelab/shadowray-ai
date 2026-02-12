@@ -1,0 +1,179 @@
+# Network Policies for ShadowRay stack
+# Enforces tier-based segmentation:
+#   Internet -> Nginx (frontend) -> Flask (backend) -> Ray (data)
+#
+# Requires a CNI plugin that supports NetworkPolicy (Calico, Cilium, etc.)
+
+# --- Default deny all ingress in the namespace ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+---
+# --- Nginx: allow ingress from anywhere on port 80 ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-ingress
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx-proxy
+      tier: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 80
+
+---
+# --- Nginx: egress only to Flask API ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-egress-to-flask
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx-proxy
+      tier: frontend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: flask-api
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 5000
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# --- Flask API: allow ingress only from Nginx ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flask-ingress-from-nginx
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: flask-api
+      tier: backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: nginx-proxy
+          tier: frontend
+    ports:
+    - protocol: TCP
+      port: 5000
+
+---
+# --- Flask API: egress only to Ray head ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flask-egress-to-ray
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: flask-api
+      tier: backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          ray.io/node-type: head
+    ports:
+    - protocol: TCP
+      port: 8000  # Ray Serve
+    - protocol: TCP
+      port: 8265  # Ray Dashboard
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# --- Ray head: allow ingress only from Flask and Ray workers ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ray-head-ingress
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/node-type: head
+  policyTypes:
+  - Ingress
+  ingress:
+  # From Flask API (Serve + Dashboard only)
+  - from:
+    - podSelector:
+        matchLabels:
+          app: flask-api
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 8000
+    - protocol: TCP
+      port: 8265
+  # From Ray workers (GCS, inter-node)
+  - from:
+    - podSelector:
+        matchLabels:
+          ray.io/is-ray-node: "yes"
+    ports:
+    - protocol: TCP
+      port: 6379
+    - protocol: TCP
+      port: 10001
+    - protocol: TCP
+      port: 8265
+
+---
+# --- Ray workers: allow ingress only from Ray head ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ray-worker-ingress
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/is-ray-node: "yes"
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          ray.io/is-ray-node: "yes"

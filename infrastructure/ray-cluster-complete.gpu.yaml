@@ -1,4 +1,3 @@
-# ray-cluster-gpu-final.yaml
 apiVersion: ray.io/v1
 kind: RayCluster
 metadata:
@@ -7,7 +6,6 @@ metadata:
 spec:
   rayVersion: '2.8.0'
   
-  # Head node configuration
   headGroupSpec:
     rayStartParams:
       dashboard-host: '0.0.0.0'
@@ -20,16 +18,12 @@ spec:
           ports:
           - containerPort: 6379
             name: gcs
-            protocol: TCP
           - containerPort: 8265
             name: dashboard
-            protocol: TCP
           - containerPort: 10001
             name: client
-            protocol: TCP
           - containerPort: 8000
             name: serve
-            protocol: TCP
           resources:
             limits:
               cpu: "2"
@@ -37,10 +31,14 @@ spec:
             requests:
               cpu: "1"
               memory: 2Gi
+          volumeMounts:
+          - name: log-volume
+            mountPath: /tmp/ray
+        volumes:
+        - name: log-volume
+          emptyDir: {}
   
-  # Worker groups
   workerGroupSpecs:
-  # CPU workers
   - groupName: small-group
     replicas: 2
     minReplicas: 1
@@ -58,18 +56,27 @@ spec:
             requests:
               cpu: "1"
               memory: 2Gi
+          volumeMounts:
+          - name: log-volume
+            mountPath: /tmp/ray
+        volumes:
+        - name: log-volume
+          emptyDir: {}
   
-  # GPU workers
   - groupName: gpu-group
     replicas: 1
     minReplicas: 0
-    maxReplicas: 2
+    maxReplicas: 1
     rayStartParams:
       num-gpus: "1"
     template:
       spec:
         nodeSelector:
-          name: gpu-pool2  # Target the fresh GPU node pool
+          name: gpu-pool2
+        tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
         containers:
         - name: ray-worker-gpu
           image: rayproject/ray:2.8.0-py310-gpu
@@ -82,3 +89,9 @@ spec:
               cpu: "2"
               memory: 4Gi
               nvidia.com/gpu: "1"
+          volumeMounts:
+          - name: log-volume
+            mountPath: /tmp/ray
+        volumes:
+        - name: log-volume
+          emptyDir: {}

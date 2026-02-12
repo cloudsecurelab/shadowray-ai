@@ -1,0 +1,60 @@
+# Restricted ServiceAccounts for ShadowRay stack
+# Each tier gets a dedicated SA with no extra permissions,
+# preventing lateral movement via stolen K8s tokens.
+
+# --- Flask API ServiceAccount (no RBAC bindings = no API access) ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flask-api-sa
+  namespace: default
+automountServiceAccountToken: false
+
+---
+# --- Nginx Proxy ServiceAccount (no RBAC bindings = no API access) ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-proxy-sa
+  namespace: default
+automountServiceAccountToken: false
+
+---
+# --- Ray Cluster ServiceAccount ---
+# Ray needs minimal API access for cluster coordination.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-cluster-sa
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-cluster-role
+  namespace: default
+rules:
+# Ray operator needs to watch/list pods for autoscaling
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+# Ray needs to read its own config
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-cluster-binding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: ray-cluster-sa
+  namespace: default
+roleRef:
+  kind: Role
+  name: ray-cluster-role
+  apiGroup: rbac.authorization.k8s.io
